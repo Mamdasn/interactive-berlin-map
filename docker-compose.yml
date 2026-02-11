@@ -1,0 +1,90 @@
+x-postgres-cred-env-var: &postgres-cred-shared
+  POSTGRES_USER: "postgres"
+  POSTGRES_PASSWORD: "1234"
+  POSTGRES_DB: "postgres"
+  DATABASE_URL: postgresql://postgres:1234@postgres_db:5432/postgres
+
+services:
+  tor_privoxy:
+    container_name: tor_privoxy
+    restart: always
+    image: dockage/tor-privoxy:latest
+    ports:
+      - "9051:9051"
+
+  postgres_db:
+    image: postgres:14-alpine
+    restart: always
+    container_name: postgres_db
+    environment:
+      <<: *postgres-cred-shared
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+
+  protestcrawler:
+    container_name: protestcrawler
+    restart: on-failure
+    image: sfarhad/protestcrawler:4.1.0
+    environment:
+      <<: *postgres-cred-shared
+      DB_UPDATE_PERIOD: ${DB_UPDATE_PERIOD}
+      POSTGRES_HOST: "postgres_db"
+    volumes:
+      - ./protestcrawler/output:/app/output
+    command: ["sh", "-c", "python protestcrawler.py >> /app/output/protestcrawler.logs 2>&1"]
+    depends_on:
+      - postgres_db
+
+  nominatim:
+    image: mediagis/nominatim:5.2
+    container_name: nominatim
+    environment:
+      - PBF_PATH=/data/berlin-latest.osm.pbf
+      - THREADS=1
+      - GUNICORN_WORKERS=2
+    volumes:
+      - ./nominatim-data:/var/lib/postgresql/16/main
+      - ./pbf:/data:ro
+    shm_size: "2gb"
+    restart: unless-stopped
+
+  tileserver:
+    image: maptiler/tileserver-gl
+    container_name: tileserver
+    volumes:
+      - ./tiles:/data
+    command: ["--mbtiles", "/data/berlin.mbtiles"]
+    restart: unless-stopped
+
+  events-map-webapp:
+    build: ./events-map-webapp
+    container_name: events-map-webapp
+    environment:
+      <<: *postgres-cred-shared
+      NOMINATIM_URL: http://nominatim:8080
+      TILE_URL: http://tileserver:8080
+      GEOCACHE_PATH: /cache/geocache.sqlite
+      RATELIMIT_STORAGE_URI: memory://
+      BERLIN_CENTER_LAT: "52.5200"
+      BERLIN_CENTER_LON: "13.4050"
+      BERLIN_RADIUS_KM: "30.0"
+    volumes:
+      - ./geocache:/cache
+    depends_on:
+      - nominatim
+      - tileserver
+      - postgres_db
+    command: ["gunicorn", "-b", "0.0.0.0:8000", "--worker-class", "gthread", "--threads", "8", "--workers", "2", "wsgi:app"]
+
+  nginx:
+    image: nginx:1.29-alpine
+    container_name: nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx-cache:/var/cache/nginx
+    depends_on:
+      - events-map-webapp
+      - tileserver
