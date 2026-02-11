@@ -1,0 +1,255 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Berlin Events</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+  <style>
+    html, body, #map { height: 100%; margin: 0; }
+
+    #date-controls {
+      position: absolute;
+      z-index: 1000;
+      top: 10px;
+      left: 10px;
+      background: #fff;
+      padding: 10px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.18);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      font-size: 14px;
+      min-width: 240px;
+    }
+
+    #date-controls .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    #status {
+      margin-top: 8px;
+      font-size: 12px;
+      opacity: 0.85;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+
+    .popup-item {
+      margin: 8px 0;
+      padding-top: 8px;
+      border-top: 1px solid #eee;
+    }
+    #reset-view {
+      width: 100%;
+      padding: 6px 10px;
+      border: 1px solid #ddd;
+      background: #fff;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+
+<div id="date-controls">
+  <div class="row">
+    <label for="date">Date</label>
+    <input id="date" type="date">
+  </div>
+  <div id="status"></div>
+  <div class="row" style="margin-top: 8px;">
+    <button id="reset-view" type="button">Reset view</button>
+  </div>
+</div>
+
+<div id="map"></div>
+
+<script>
+  function b64ToBytes(b64) {
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function keyBytesFromDate(dateStr) {
+    const salt = "berlin-events::v1";
+    const s = `${salt}::${dateStr}`;
+    const b = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i) & 0xff;
+    return b;
+  }
+
+  function loadLocations() {
+    const payloadEl = document.getElementById("loc-payload");
+    const payload = (payloadEl?.textContent || "").trim();
+    if (!payload) return [];
+
+    const data = b64ToBytes(payload);
+    const key = keyBytesFromDate(APP_DATE);
+    for (let i = 0; i < data.length; i++) 
+      data[i] ^= key[i % key.length];
+
+    const json = new TextDecoder("utf-8").decode(data);
+    try {
+      const parsed = JSON.parse(json);
+      return Object.freeze(parsed);
+    } catch {
+      return [];
+    }
+  }
+
+  const APP_DATE = {{ date|tojson }};
+</script>
+
+<script id="loc-payload" type="text/plain">
+  {{ locations_obf|safe }}
+</script>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+  const BERLIN_CENTER = [52.5200, 13.4050];
+  const HALF_KM = 30 / 111.32;
+  const degLat = HALF_KM;
+  const degLon = HALF_KM / (Math.cos(BERLIN_CENTER[0] * 3.1415 / 180));
+
+  const BERLIN_BOUNDS = L.latLngBounds(
+    [BERLIN_CENTER[0] - degLat, BERLIN_CENTER[1] - degLon],
+    [BERLIN_CENTER[0] + degLat, BERLIN_CENTER[1] + degLon]
+  );
+  const MAX_ZOOM = 16;
+  const map = L.map('map', {
+    center: BERLIN_CENTER,
+    zoom: 12,
+    zoomControl: false,
+
+    maxBounds: BERLIN_BOUNDS,
+    maxBoundsViscosity: 1.0,
+    minZoom: 0,
+    maxZoom: MAX_ZOOM,
+
+    worldCopyJump: false
+  });
+  let lastEventBounds = null;
+
+  L.control.zoom({ position: "bottomright" }).addTo(map);
+
+  const tileLayer = L.tileLayer('/tiles/styles/basic-preview/{z}/{x}/{y}.png', {
+    maxZoom: MAX_ZOOM,
+    maxNativeZoom: 14,
+    bounds: BERLIN_BOUNDS
+  }).addTo(map);
+
+  const minZoomToContainBerlin = map.getBoundsZoom(BERLIN_BOUNDS, true);
+  map.setMinZoom(minZoomToContainBerlin);
+
+  function clampToBerlin() {
+    map.panInsideBounds(BERLIN_BOUNDS, { animate: false });
+  }
+  
+  function resetView() {
+    if (lastEventBounds && lastEventBounds.isValid()) {
+      map.fitBounds(lastEventBounds.pad(0.10), { maxZoom: MAX_ZOOM });
+    } else {
+      map.fitBounds(BERLIN_BOUNDS, { maxZoom: 12 });
+    }
+    clampToBerlin();
+  }
+
+  map.on("drag", clampToBerlin);
+  map.on("zoomend", clampToBerlin);
+  map.on("moveend", clampToBerlin);
+
+  const statusEl = document.getElementById("status");
+  const dateInput = document.getElementById("date");
+  dateInput.value = APP_DATE;
+
+  function escapeHtml(s) {
+    return String(s ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  function setUrlDate(dateStr) {
+    const u = new URL(window.location.href);
+    u.searchParams.set("date", dateStr);
+    window.location.href = u.toString();
+  }
+
+  function googleMapsLinkFromCoords(lat, lon) {
+    const q = `${lat.toFixed(6)},${lon.toFixed(6)}`;
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+  }
+
+function render() {
+    let totalEvents = 0;
+    const eventBounds = L.latLngBounds([]);
+    const LOCATIONS = loadLocations();
+    
+    for (const loc of LOCATIONS) {
+      totalEvents += loc.events.length;
+
+      if (!loc.events || loc.events.length === 0) continue;
+
+      const latlng = L.latLng(loc.lat, loc.lon);
+      if (!BERLIN_BOUNDS.contains(latlng)) continue;
+
+      eventBounds.extend(latlng);
+
+      const marker = L.circleMarker([loc.lat, loc.lon], {
+        radius: 10,
+        weight: 3,
+        color: "#b00020",
+        fillColor: "#ff1744",
+        fillOpacity: 0.9
+      }).addTo(map);
+
+      const gmaps = googleMapsLinkFromCoords(loc.lat, loc.lon);
+      const header = `<b>${loc.events.length} event(s) here</b>`;
+
+      const body = loc.events.map(ev => {
+        const addr = `${ev.versammlungsort ?? ""}${ev.plz ? ", " + ev.plz : ""}`.trim();
+        return `
+          <div class="popup-item">
+            <b>${escapeHtml(ev.title ?? "Protest")}</b><br>
+            ${escapeHtml(ev.von ?? "")}–${escapeHtml(ev.bis ?? "")}<br>
+            ${escapeHtml(addr)}<br>
+            <a href="${gmaps}" target="_blank" rel="noopener">Open in Google Maps</a>
+          </div>
+        `;
+      }).join("");
+
+      marker.bindPopup(header + body, { maxWidth: 360 });
+    }
+
+    lastEventBounds = eventBounds.isValid() ? eventBounds : null;
+
+    resetView();
+
+    statusEl.textContent = `Showing ${totalEvents} event(s) at ${LOCATIONS.length} location(s) for ${APP_DATE}`;
+  }
+
+
+  render();
+  document.getElementById("reset-view").addEventListener("click", () => {
+    resetView();
+  });
+
+  dateInput.addEventListener("change", () => {
+    if (!dateInput.value) return;
+    setUrlDate(dateInput.value);
+  });
+</script>
+
+</body>
+</html>

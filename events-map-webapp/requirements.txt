@@ -1,0 +1,9 @@
+flask==3.1.2
+requests==2.32.5
+gunicorn==25.0.1
+beautifulsoup4==4.11.2
+aiohttp==3.9.4
+psycopg2-binary==2.9.11
+configparser==5.3.0
+flask-limiter==4.1.1
+redis==6.4.0
