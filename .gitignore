@@ -1,0 +1,8 @@
+*.logs
+*.pyc
+nginx-cache/
+pbf/
+nominatim-data/
+tiles/
+postgres_data/
+geocache/
