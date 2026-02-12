@@ -6,3 +6,4 @@ nominatim-data/
 tiles/
 postgres_data/
 geocache/
+redis-data/

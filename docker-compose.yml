@@ -20,6 +20,14 @@ services:
       <<: *postgres-cred-shared
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
+  
+  redis:
+    image: redis:8-alpine
+    container_name: redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ./redis-data:/data
 
   protestcrawler:
     container_name: protestcrawler
@@ -61,19 +69,21 @@ services:
     container_name: events-map-webapp
     environment:
       <<: *postgres-cred-shared
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_DB_GEO: "0" # 0 = cache nominatim geocodes
+      REDIS_DB_PG: "1" #  1 = cache postgres 
       NOMINATIM_URL: http://nominatim:8080
       TILE_URL: http://tileserver:8080
-      GEOCACHE_PATH: /cache/geocache.sqlite
-      RATELIMIT_STORAGE_URI: memory://
+      RATELIMIT_STORAGE_URI: redis://redis:6379/2 #  2 = cache to use for rate-limit
       BERLIN_CENTER_LAT: "52.5200"
       BERLIN_CENTER_LON: "13.4050"
       BERLIN_RADIUS_KM: "30.0"
-    volumes:
-      - ./geocache:/cache
     depends_on:
       - nominatim
       - tileserver
       - postgres_db
+      - redis
     command: ["gunicorn", "-b", "0.0.0.0:8000", "--worker-class", "gthread", "--threads", "8", "--workers", "2", "wsgi:app"]
 
   nginx:

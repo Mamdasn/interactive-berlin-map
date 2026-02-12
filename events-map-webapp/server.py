@@ -2,11 +2,10 @@ import os
 import json
 import time
 import base64
-import sqlite3
-import threading
 import math
 from datetime import datetime, date
 
+import redis
 import requests
 import psycopg2
 import psycopg2.extras
@@ -24,11 +23,6 @@ limiter = Limiter(
     key_func=get_remote_address,
     app=app,
     storage_uri=os.environ.get("RATELIMIT_STORAGE_URI", "memory://"),
-    default_limits=[os.environ.get("RATELIMIT_DEFAULT_LIMIT", "120 per minute")],
-    meta_limits=[
-        os.environ.get("RATELIMIT_META_LIMIT_1", "600 per 10 minute"),
-        os.environ.get("RATELIMIT_META_LIMIT_2", "5000 per day"),
-    ],
 )
 
 # --- Parameters ---
@@ -37,14 +31,14 @@ TILE_URL = os.environ.get("TILE_URL", "http://tileserver:8080")
 
 DATABASE_URL = os.environ.get("DATABASE_URL")  # postgresql://...
 
-GEOCACHE_PATH = os.environ.get("GEOCACHE_PATH", "/cache/geocache.sqlite")
 GEOCACHE_TTL_DAYS = int(os.environ.get("GEOCACHE_TTL_DAYS", "180"))
+PGCACHE_TTL_SECONDS = int(os.environ.get("PGCACHE_TTL_SECONDS", "600"))
 
 NOMINATIM_TIMEOUT = float(os.environ.get("NOMINATIM_TIMEOUT", "5"))
 EVENTS_MAX_GEOCODES = int(os.environ.get("EVENTS_MAX_GEOCODES", "25"))
 EVENTS_MAX_ROWS = int(os.environ.get("EVENTS_MAX_ROWS", "5000"))
 
-ROOT_RATE_LIMIT = os.environ.get("ROOT_RATE_LIMIT", "20 per minute")
+ROOT_RATE_LIMIT = os.environ.get("ROOT_RATE_LIMIT", "10 per minute")
 
 BERLIN_CENTER_LAT = float(os.environ.get("BERLIN_CENTER_LAT", "52.5200"))
 BERLIN_CENTER_LON = float(os.environ.get("BERLIN_CENTER_LON", "13.4050"))
@@ -63,8 +57,19 @@ NOMINATIM_VIEWBOX = f"{BERLIN_MIN_LON},{BERLIN_MAX_LAT},{BERLIN_MAX_LON},{BERLIN
 HTTP = requests.Session()
 HTTP.headers.update({"User-Agent": "berlin-protest-map/1.0"})
 
-_sqlite_lock = threading.Lock()
-_sqlite_conn = None  # lazily created per worker
+
+def _redis_client(db_env: str):
+    host = os.environ.get("REDIS_HOST")
+    port = os.environ.get("REDIS_PORT", "6379")
+    if not host:
+        return None
+    db = int(os.environ.get(db_env, "0"))
+    return redis.Redis(host=host, port=int(port), db=db, decode_responses=True)
+
+
+_redis_geo = _redis_client("REDIS_DB_GEO")  # DB 0
+_redis_pg = _redis_client("REDIS_DB_PG")  # DB 1
+
 
 # --- unitilities ---
 def parse_date_param():
@@ -101,39 +106,15 @@ def calculate_geo_distance(lat1, lon1, lat2, lon2) -> float:
     return R * c
 
 def in_berlin_radius(lat: float, lon: float) -> bool:
-    return calculate_geo_distance(BERLIN_CENTER_LAT, BERLIN_CENTER_LON, lat, lon) <= BERLIN_RADIUS_KM
+    return (
+        calculate_geo_distance(BERLIN_CENTER_LAT, BERLIN_CENTER_LON, lat, lon)
+        <= BERLIN_RADIUS_KM
+    )
 
 def pg_conn():
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL is not set")
     return psycopg2.connect(DATABASE_URL)
-
-def init_geocache(conn: sqlite3.Connection):
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA synchronous=NORMAL;")
-    conn.execute("PRAGMA temp_store=MEMORY;")
-    conn.execute("PRAGMA busy_timeout=30000;")
-
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS geocache (
-            key TEXT PRIMARY KEY,
-            lat REAL NOT NULL,
-            lon REAL NOT NULL,
-            updated_at INTEGER NOT NULL
-        )
-    """
-    )
-    conn.execute("CREATE INDEX IF NOT EXISTS geocache_updated_at ON geocache(updated_at)")
-    conn.commit()
-
-def get_geocache_conn() -> sqlite3.Connection:
-    global _sqlite_conn
-    if _sqlite_conn is None:
-        conn = sqlite3.connect(GEOCACHE_PATH, timeout=30, check_same_thread=False)
-        init_geocache(conn)
-        _sqlite_conn = conn
-    return _sqlite_conn
 
 def norm_key(plz: str, ort: str) -> str:
     plz = (plz or "").strip().upper()
@@ -171,48 +152,63 @@ def geocode_place(versammlungsort: str, plz: str):
         app.logger.warning("Nominatim request failed for q=%r: %s", q, e)
         return None, None
 
-def geocode_with_sqlite_cache(versammlungsort: str, plz: str):
+def geocode_with_redis_cache(versammlungsort: str, plz: str):
+    """
+    Redis-only geocode cache:
+      key = "{PLZ}|{ORT}"
+      value = "lat,lon"
+      TTL = GEOCACHE_TTL_DAYS
+    """
+    if _redis_geo is None:
+        raise RuntimeError("Redis geo cache not configured (set REDIS_HOST/REDIS_DB_GEO)")
+
     k = norm_key(plz, versammlungsort)
-    now = int(time.time())
     ttl = GEOCACHE_TTL_DAYS * 86400
 
-    conn = get_geocache_conn()
-
-    with _sqlite_lock:
-        row = conn.execute(
-            "SELECT lat, lon, updated_at FROM geocache WHERE key=?",
-            (k,),
-        ).fetchone()
-
-        if row:
-            lat, lon, updated_at = row
-            lat = float(lat)
-            lon = float(lon)
-            if now - int(updated_at) <= ttl and in_berlin_radius(lat, lon):
+    try:
+        v = _redis_geo.get(k)
+        if v:
+            lat_s, lon_s = v.split(",", 1)
+            lat = float(lat_s)
+            lon = float(lon_s)
+            if in_berlin_radius(lat, lon):
                 return lat, lon, True
+            _redis_geo.delete(k)
+    except Exception as e:
+        app.logger.warning("Redis geo cache read failed: %s", e)
 
-    # Do external geocoding without holding the SQLite lock.
+    # fetch geocodes from nominatim directly
     lat, lon = geocode_place(versammlungsort, plz)
     if lat is None or lon is None:
         return None, None, False
 
-    with _sqlite_lock:
-        conn.execute(
-            "INSERT OR REPLACE INTO geocache(key, lat, lon, updated_at) VALUES (?, ?, ?, ?)",
-            (k, lat, lon, now),
-        )
-        conn.commit()
+    # cache geocoes in Redis
+    try:
+        _redis_geo.setex(k, ttl, f"{lat},{lon}")
+    except Exception as e:
+        app.logger.warning("Redis geo cache write failed: %s", e)
 
     return lat, lon, False
 
 def build_locations(d: date):
     t0 = time.time()
 
+    cache_key = f"locations::{d.isoformat()}"
+    if _redis_pg is not None:
+        try:
+            cached = _redis_pg.get(cache_key)
+            if cached:
+                return json.loads(cached)
+        except Exception as e:
+            app.logger.warning("Redis pg cache read failed: %s", e)
+
     max_geocodes = EVENTS_MAX_GEOCODES
     max_rows = EVENTS_MAX_ROWS
     req_cache = {}
 
-    with pg_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+    with pg_conn() as conn, conn.cursor(
+        cursor_factory=psycopg2.extras.RealDictCursor
+    ) as cur:
         cur.execute(
             """
             SELECT id, datum, von, bis, thema, plz, versammlungsort, aufzugsstrecke
@@ -245,7 +241,7 @@ def build_locations(d: date):
                 lat, lon = None, None
                 skipped_new_geocodes += 1
             else:
-                lat, lon, hit = geocode_with_sqlite_cache(ort, plz)
+                lat, lon, hit = geocode_with_redis_cache(ort, plz)
                 if hit:
                     cache_hits += 1
                 else:
@@ -299,6 +295,17 @@ def build_locations(d: date):
         filtered_outside_radius,
         time.time() - t0,
     )
+
+    # cache locations in Redis
+    if _redis_pg is not None:
+        try:
+            _redis_pg.setex(
+                cache_key,
+                PGCACHE_TTL_SECONDS,
+                json.dumps(locations, ensure_ascii=False, separators=(",", ":")),
+            )
+        except Exception as e:
+            app.logger.warning("Redis pg cache write failed: %s", e)
 
     return locations
 
