@@ -3,7 +3,8 @@
 nginx-cache/
 pbf/
 nominatim-data/
-tiles/
+tiles/fonts/  
+tiles/berlin.mbtiles
 postgres_data/
 geocache/
 redis-data/
