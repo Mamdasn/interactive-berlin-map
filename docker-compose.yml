@@ -57,11 +57,10 @@ services:
     restart: unless-stopped
 
   tileserver:
-    image: maptiler/tileserver-gl
+    image: maptiler/tileserver-gl-light:latest
     container_name: tileserver
     volumes:
       - ./tiles:/data
-    command: ["--mbtiles", "/data/berlin.mbtiles"]
     restart: unless-stopped
 
   events-map-webapp:
@@ -93,8 +92,10 @@ services:
     ports:
       - "80:80"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx-cache:/var/cache/nginx
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/429.html:/usr/share/nginx/html/429.html:ro
+      - ./nginx/error.html:/usr/share/nginx/html/error.html:ro
     depends_on:
       - events-map-webapp
       - tileserver
