@@ -332,11 +332,6 @@ def make_locations_obf(locations, app_date_iso: str) -> str:
 
 
 # --- Flask routes ---
-@app.errorhandler(429)
-def ratelimit_handler(e):
-    return render_template("429.html"), 429
-
-
 @app.route("/", methods=["GET", "HEAD"])
 @limiter.limit(ROOT_RATE_LIMIT)
 def root():
@@ -344,18 +339,6 @@ def root():
     locations = build_locations(d)
     obf = make_locations_obf(locations, d.isoformat())
     return render_template("index.html", date=d.isoformat(), locations_obf=obf)
-
-
-@limiter.exempt
-@app.route("/tiles/<path:path>")
-def tiles_proxy(path):
-    r = HTTP.get(f"{TILE_URL}/{path}", params=request.args, timeout=30, stream=True)
-    return Response(
-        r.iter_content(chunk_size=64 * 1024),
-        status=r.status_code,
-        content_type=r.headers.get("Content-Type", "application/octet-stream"),
-    )
-
 
 @app.route("/<path:unused>")
 def block_everything(unused):
