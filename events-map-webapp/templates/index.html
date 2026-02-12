@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.18.0/dist/maplibre-gl.css">
 
   <style>
     html, body, #map { height: 100%; margin: 0; }
@@ -53,6 +54,25 @@
       cursor: pointer;
       font-size: 14px;
     }
+    @media (max-width: 600px) {
+      .leaflet-popup.event-popup {
+        max-width: 92vw; /* overall popup width */
+      }
+      .leaflet-popup.event-popup .leaflet-popup-content-wrapper {
+        max-width: 92vw;
+      }
+      .leaflet-popup.event-popup .leaflet-popup-content {
+        margin: 10px 12px;
+        max-width: 92vw;
+        /* Optional: prevent super tall popups from covering the whole map */
+        max-height: 55vh;
+        overflow-y: auto;
+      }
+    }
+    /* disable MapLibre GL canvas to use Leaflet UI */
+    .maplibregl-canvas {
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -93,7 +113,7 @@
 
     const data = b64ToBytes(payload);
     const key = keyBytesFromDate(APP_DATE);
-    for (let i = 0; i < data.length; i++) 
+    for (let i = 0; i < data.length; i++)
       data[i] ^= key[i % key.length];
 
     const json = new TextDecoder("utf-8").decode(data);
@@ -113,6 +133,9 @@
 </script>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/maplibre-gl@5.18.0/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.3/leaflet-maplibre-gl.js"></script>
+<script src="https://unpkg.com/dompurify@3.0.11/dist/purify.min.js"></script>
 
 <script>
   const BERLIN_CENTER = [52.5200, 13.4050];
@@ -124,7 +147,9 @@
     [BERLIN_CENTER[0] - degLat, BERLIN_CENTER[1] - degLon],
     [BERLIN_CENTER[0] + degLat, BERLIN_CENTER[1] + degLon]
   );
-  const MAX_ZOOM = 16;
+
+  const MAX_ZOOM = 18;
+
   const map = L.map('map', {
     center: BERLIN_CENTER,
     zoom: 12,
@@ -137,23 +162,25 @@
 
     worldCopyJump: false
   });
+
   let lastEventBounds = null;
 
   L.control.zoom({ position: "bottomright" }).addTo(map);
 
-  const tileLayer = L.tileLayer('/tiles/styles/basic-preview/{z}/{x}/{y}.png', {
-    maxZoom: MAX_ZOOM,
-    maxNativeZoom: 14,
-    bounds: BERLIN_BOUNDS
+  const styleUrl = '/tiles/styles/basic-preview/style.json';
+
+  const tileLayer = L.maplibreGL({
+    style: styleUrl,
+    interactive: false
   }).addTo(map);
 
-  const minZoomToContainBerlin = map.getBoundsZoom(BERLIN_BOUNDS, true);
+  const minZoomToContainBerlin = Math.max(0, Math.floor(map.getBoundsZoom(BERLIN_BOUNDS, true) - 2));
   map.setMinZoom(minZoomToContainBerlin);
 
   function clampToBerlin() {
     map.panInsideBounds(BERLIN_BOUNDS, { animate: false });
   }
-  
+
   function resetView() {
     if (lastEventBounds && lastEventBounds.isValid()) {
       map.fitBounds(lastEventBounds.pad(0.10), { maxZoom: MAX_ZOOM });
@@ -191,11 +218,11 @@
     return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
   }
 
-function render() {
+  function render() {
     let totalEvents = 0;
     const eventBounds = L.latLngBounds([]);
     const LOCATIONS = loadLocations();
-    
+
     for (const loc of LOCATIONS) {
       totalEvents += loc.events.length;
 
@@ -229,7 +256,7 @@ function render() {
         `;
       }).join("");
 
-      marker.bindPopup(header + body, { maxWidth: 360 });
+      marker.bindPopup(DOMPurify.sanitize(header + body), { maxWidth: 360, className: "event-popup" });
     }
 
     lastEventBounds = eventBounds.isValid() ? eventBounds : null;
@@ -239,8 +266,8 @@ function render() {
     statusEl.textContent = `Showing ${totalEvents} event(s) at ${LOCATIONS.length} location(s) for ${APP_DATE}`;
   }
 
-
   render();
+
   document.getElementById("reset-view").addEventListener("click", () => {
     resetView();
   });
