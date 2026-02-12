@@ -1,0 +1,21 @@
+{
+  "options": {
+    "paths": {
+      "root": "/data",
+      "fonts": "/data/fonts"
+    }
+  },
+  "data": {
+    "berlin": { 
+      "mbtiles": "berlin.mbtiles" 
+    }
+  },
+  "styles": {
+    "basic": {
+      "style": "basic.json",
+      "tilejson": { 
+        "source": "berlin" 
+      }
+    }
+  }
+}
