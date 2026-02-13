@@ -39,7 +39,7 @@ NOMINATIM_TIMEOUT = float(os.environ.get("NOMINATIM_TIMEOUT", "5"))
 EVENTS_MAX_GEOCODES = int(os.environ.get("EVENTS_MAX_GEOCODES", "25"))
 EVENTS_MAX_ROWS = int(os.environ.get("EVENTS_MAX_ROWS", "5000"))
 
-ROOT_RATE_LIMIT = os.environ.get("ROOT_RATE_LIMIT", "10 per minute")
+ROOT_RATE_LIMIT = os.environ.get("ROOT_RATE_LIMIT", "1000 per minute")
 
 BERLIN_CENTER_LAT = float(os.environ.get("BERLIN_CENTER_LAT", "52.5200"))
 BERLIN_CENTER_LON = float(os.environ.get("BERLIN_CENTER_LON", "13.4050"))
@@ -49,6 +49,12 @@ REDIS_DB_GEO = int(os.environ.get("REDIS_DB_GEO", "0")) # 0 = cache nominatim ge
 REDIS_DB_PG = int(os.environ.get("REDIS_DB_PG", "1"))   # 1 = cache postgres DB of events
 
 # --- Utilities ---
+@lru_cache(maxsize=None)
+def initiate_nominatim_http_session():
+    session = requests.Session()
+    session.headers.update({"User-Agent": "berlin-protest-map/1.0"})
+    return session
+
 def _redis_client(red_db_stack_num: int):
     host = os.environ.get("REDIS_HOST")
     if not host:
@@ -144,9 +150,9 @@ def norm_key(plz: str, ort: str) -> str:
 def geocode_place(versammlungsort: str, plz: str):
     q = f"{versammlungsort} {plz} Berlin"
     try:
-        r = requests.get(
+        session = initiate_nominatim_http_session()
+        r = session.get(
             f"{NOMINATIM_URL}/search",
-            headers={"User-Agent": "berlin-protest-map/1.0"},
             params={
                 "q": q,
                 "format": "json",
@@ -256,8 +262,11 @@ def build_locations(d: date):
     filtered_outside_radius = 0
 
     for row in rows:
-        plz = row.get("plz")
-        ort = row.get("versammlungsort")
+        plz = (row.get("plz") or "").strip()
+        ort = (row.get("versammlungsort") or "").strip()
+
+        if not ort or not plz:
+            continue
 
         k = norm_key(plz, ort)
         if k in req_cache:
