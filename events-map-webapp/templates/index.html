@@ -138,10 +138,10 @@
 <script src="https://unpkg.com/dompurify@3.0.11/dist/purify.min.js"></script>
 
 <script>
-  const BERLIN_CENTER = [52.5200, 13.4050];
-  const HALF_KM = 30 / 111.32;
-  const degLat = HALF_KM;
-  const degLon = HALF_KM / (Math.cos(BERLIN_CENTER[0] * 3.1415 / 180));
+const BERLIN_CENTER = [52.5200, 13.4050];
+const HALF_KM = 30 / 111.32;
+const degLat = HALF_KM;
+const degLon = HALF_KM / (Math.cos(BERLIN_CENTER[0] * 3.1415 / 180));
 
   const BERLIN_BOUNDS = L.latLngBounds(
     [BERLIN_CENTER[0] - degLat, BERLIN_CENTER[1] - degLon],
@@ -157,10 +157,10 @@
 
     maxBounds: BERLIN_BOUNDS,
     maxBoundsViscosity: 1.0,
-    minZoom: 0,
+    minZoom: 2,
     maxZoom: MAX_ZOOM,
-
-    worldCopyJump: false
+    worldCopyJump: false,
+    continuousWorld: false
   });
 
   let lastEventBounds = null;
@@ -171,10 +171,11 @@
 
   const tileLayer = L.maplibreGL({
     style: styleUrl,
-    interactive: false
+    interactive: false,
+    noWrap: true
   }).addTo(map);
 
-  const minZoomToContainBerlin = Math.max(0, Math.floor(map.getBoundsZoom(BERLIN_BOUNDS, true) - 2));
+  const minZoomToContainBerlin = map.getBoundsZoom(BERLIN_BOUNDS, true);
   map.setMinZoom(minZoomToContainBerlin);
 
   function clampToBerlin() {
@@ -191,8 +192,8 @@
   }
 
   map.on("drag", clampToBerlin);
-  map.on("zoomend", clampToBerlin);
-  map.on("moveend", clampToBerlin);
+  map.on("zoom", clampToBerlin);
+  map.on("move", clampToBerlin);
 
   const statusEl = document.getElementById("status");
   const dateInput = document.getElementById("date");
