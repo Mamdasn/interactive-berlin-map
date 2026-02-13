@@ -8,7 +8,6 @@ import psycopg2
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 
-
 def _redis_client(red_db_stack_num: int):
     host = os.environ.get("REDIS_HOST")
     if not host:
@@ -38,12 +37,6 @@ def _redis_client(red_db_stack_num: int):
 @lru_cache(maxsize=None)
 def get_redis(red_db_stack_num: int):
     return _redis_client(red_db_stack_num)
-
-@lru_cache(maxsize=None)
-def initiate_nominatim_http_session():
-    session = requests.Session()
-    session.headers.update({"User-Agent": "berlin-protest-map/1.0"})
-    return session
 
 def pg_conn():
     if not DATABASE_URL:

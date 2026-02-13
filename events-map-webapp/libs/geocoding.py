@@ -3,7 +3,7 @@ import os
 
 import requests
 
-from libs.db_clients import get_redis, initiate_nominatim_http_session
+from libs.db_clients import get_redis
 from libs.geo_utils import get_berlin_viewbox, in_berlin_radius, norm_key
 
 NOMINATIM_URL = os.environ.get("NOMINATIM_URL", "http://nominatim:8080")
@@ -15,9 +15,9 @@ REDIS_DB_GEO = int(os.environ.get("REDIS_DB_GEO", "0"))
 def geocode_place(versammlungsort: str, plz: str):
     q = f"{versammlungsort} {plz} Berlin"
     try:
-        session = initiate_nominatim_http_session()
-        r = session.get(
+        r = requests.get(
             f"{NOMINATIM_URL}/search",
+            headers={"User-Agent": "berlin-protest-map/1.0"},
             params={
                 "q": q,
                 "format": "json",
@@ -45,6 +45,32 @@ def geocode_place(versammlungsort: str, plz: str):
         return None, None
 
 
+def geocode_from_redis_cache(rgeo, k: str):
+    try:
+        v = rgeo.get(k)
+        if not v:
+            return None, None, False
+
+        lat_s, lon_s = v.split(",", 1)
+        lat = float(lat_s)
+        lon = float(lon_s)
+        if in_berlin_radius(lat, lon):
+            return lat, lon, True
+
+        rgeo.delete(k)
+    except Exception as e:
+        logging.warning("Redis geo cache read failed: %s", e)
+
+    return None, None, False
+
+
+def geocode_from_nominatim(versammlungsort: str, plz: str):
+    lat, lon = geocode_place(versammlungsort, plz)
+    if lat is None or lon is None:
+        return None, None
+    return lat, lon
+
+
 def geocode_with_redis_cache(versammlungsort: str, plz: str):
     """
     Redis for caching geocodes:
@@ -59,20 +85,11 @@ def geocode_with_redis_cache(versammlungsort: str, plz: str):
     k = norm_key(plz, versammlungsort)
     ttl = GEOCACHE_TTL_DAYS * 86400
 
-    try:
-        v = rgeo.get(k)
-        if v:
-            lat_s, lon_s = v.split(",", 1)
-            lat = float(lat_s)
-            lon = float(lon_s)
-            if in_berlin_radius(lat, lon):
-                return lat, lon, True
-            rgeo.delete(k)
-    except Exception as e:
-        logging.warning("Redis geo cache read failed: %s", e)
+    lat, lon, hit = geocode_from_redis_cache(rgeo, k)
+    if hit:
+        return lat, lon, True
 
-    # fetch geocodes from nominatim directly
-    lat, lon = geocode_place(versammlungsort, plz)
+    lat, lon = geocode_from_nominatim(versammlungsort, plz)
     if lat is None or lon is None:
         return None, None, False
 

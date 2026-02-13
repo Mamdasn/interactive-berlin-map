@@ -1,4 +1,4 @@
-from libs.db_clients import _redis_client, get_redis, initiate_nominatim_http_session, pg_conn
+from libs.db_clients import _redis_client, get_redis, pg_conn
 from libs.geo_utils import (
     calculate_geo_distance,
     in_berlin_radius,
@@ -13,7 +13,6 @@ from libs.locations import build_locations
 __all__ = [
     "_redis_client",
     "get_redis",
-    "initiate_nominatim_http_session",
     "calculate_geo_distance",
     "in_berlin_radius",
     "pg_conn",
