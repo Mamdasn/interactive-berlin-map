@@ -3,6 +3,8 @@ import json
 import time
 import base64
 import math
+import logging
+from functools import lru_cache
 from datetime import datetime, date
 
 import redis
@@ -15,8 +17,7 @@ from flask_limiter.util import get_remote_address
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 app = Flask(__name__)
-
-# Trust a single reverse proxy for client IP/scheme headers.
+app.logger.setLevel(logging.INFO)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 
 limiter = Limiter(
@@ -29,7 +30,7 @@ limiter = Limiter(
 NOMINATIM_URL = os.environ.get("NOMINATIM_URL", "http://nominatim:8080")
 TILE_URL = os.environ.get("TILE_URL", "http://tileserver:8080")
 
-DATABASE_URL = os.environ.get("DATABASE_URL")  # postgresql://...
+DATABASE_URL = os.environ.get("DATABASE_URL") # postgres DB of events
 
 GEOCACHE_TTL_DAYS = int(os.environ.get("GEOCACHE_TTL_DAYS", "180"))
 PGCACHE_TTL_SECONDS = int(os.environ.get("PGCACHE_TTL_SECONDS", "600"))
@@ -44,34 +45,52 @@ BERLIN_CENTER_LAT = float(os.environ.get("BERLIN_CENTER_LAT", "52.5200"))
 BERLIN_CENTER_LON = float(os.environ.get("BERLIN_CENTER_LON", "13.4050"))
 BERLIN_RADIUS_KM = float(os.environ.get("BERLIN_RADIUS_KM", "30.0"))
 
-_deg_lat = BERLIN_RADIUS_KM / 111.32
-_deg_lon = BERLIN_RADIUS_KM / (111.32 * math.cos(math.radians(BERLIN_CENTER_LAT)))
+REDIS_DB_GEO = int(os.environ.get("REDIS_DB_GEO", "0")) # 0 = cache nominatim geocodes
+REDIS_DB_PG = int(os.environ.get("REDIS_DB_PG", "1"))   # 1 = cache postgres DB of events
 
-BERLIN_MIN_LAT = BERLIN_CENTER_LAT - _deg_lat
-BERLIN_MAX_LAT = BERLIN_CENTER_LAT + _deg_lat
-BERLIN_MIN_LON = BERLIN_CENTER_LON - _deg_lon
-BERLIN_MAX_LON = BERLIN_CENTER_LON + _deg_lon
-
-NOMINATIM_VIEWBOX = f"{BERLIN_MIN_LON},{BERLIN_MAX_LAT},{BERLIN_MAX_LON},{BERLIN_MIN_LAT}"
-
-HTTP = requests.Session()
-HTTP.headers.update({"User-Agent": "berlin-protest-map/1.0"})
-
-
-def _redis_client(db_env: str):
+# --- Utilities ---
+def _redis_client(red_db_stack_num: int):
     host = os.environ.get("REDIS_HOST")
-    port = os.environ.get("REDIS_PORT", "6379")
     if not host:
         return None
-    db = int(os.environ.get(db_env, "0"))
-    return redis.Redis(host=host, port=int(port), db=db, decode_responses=True)
 
+    port = int(os.environ.get("REDIS_PORT", "6379"))
+    db = red_db_stack_num
 
-_redis_geo = _redis_client("REDIS_DB_GEO")  # DB 0
-_redis_pg = _redis_client("REDIS_DB_PG")  # DB 1
+    r = redis.Redis(
+        host=host,
+        port=port,
+        db=db,
+        decode_responses=True,
+        socket_connect_timeout=1.0,
+        socket_timeout=1.0,
+        health_check_interval=30,
+        retry_on_timeout=True,
+    )
 
+    try:
+        r.ping()
+    except redis.RedisError:
+        return None
 
-# --- unitilities ---
+    return r
+
+@lru_cache(maxsize=None)
+def get_redis(red_db_stack_num: int):
+    return _redis_client(red_db_stack_num)
+
+def get_berlin_viewbox():
+    _deg_lat = BERLIN_RADIUS_KM / 111.32
+    _deg_lon = BERLIN_RADIUS_KM / (111.32 * math.cos(math.radians(BERLIN_CENTER_LAT)))
+
+    BERLIN_MIN_LAT = BERLIN_CENTER_LAT - _deg_lat
+    BERLIN_MAX_LAT = BERLIN_CENTER_LAT + _deg_lat
+    BERLIN_MIN_LON = BERLIN_CENTER_LON - _deg_lon
+    BERLIN_MAX_LON = BERLIN_CENTER_LON + _deg_lon
+
+    NOMINATIM_VIEWBOX = f"{BERLIN_MIN_LON},{BERLIN_MAX_LAT},{BERLIN_MAX_LON},{BERLIN_MIN_LAT}"
+    return NOMINATIM_VIEWBOX
+
 def parse_date_param():
     allowed = {"date"}
     extra = set(request.args.keys()) - allowed
@@ -95,6 +114,7 @@ def calculate_geo_distance(lat1, lon1, lat2, lon2) -> float:
     """
     Great-circle distance between two points (km).
     """
+    # I'll keep it like this for now to avoid edge cases
     R = 6371.0088
     phi1 = math.radians(lat1)
     phi2 = math.radians(lat2)
@@ -124,15 +144,16 @@ def norm_key(plz: str, ort: str) -> str:
 def geocode_place(versammlungsort: str, plz: str):
     q = f"{versammlungsort} {plz} Berlin"
     try:
-        r = HTTP.get(
+        r = requests.get(
             f"{NOMINATIM_URL}/search",
+            headers={"User-Agent": "berlin-protest-map/1.0"},
             params={
                 "q": q,
                 "format": "json",
                 "limit": 1,
                 "countrycodes": "de",
                 "bounded": 1,
-                "viewbox": NOMINATIM_VIEWBOX,
+                "viewbox": get_berlin_viewbox(),
             },
             timeout=NOMINATIM_TIMEOUT,
         )
@@ -154,26 +175,27 @@ def geocode_place(versammlungsort: str, plz: str):
 
 def geocode_with_redis_cache(versammlungsort: str, plz: str):
     """
-    Redis-only geocode cache:
+    Redis for caching geocodes:
       key = "{PLZ}|{ORT}"
       value = "lat,lon"
       TTL = GEOCACHE_TTL_DAYS
     """
-    if _redis_geo is None:
-        raise RuntimeError("Redis geo cache not configured (set REDIS_HOST/REDIS_DB_GEO)")
+    rgeo = get_redis(REDIS_DB_GEO)
+    if rgeo is None:
+        raise RuntimeError("Redis geo cache not configured properly.")
 
     k = norm_key(plz, versammlungsort)
     ttl = GEOCACHE_TTL_DAYS * 86400
 
     try:
-        v = _redis_geo.get(k)
+        v = rgeo.get(k)
         if v:
             lat_s, lon_s = v.split(",", 1)
             lat = float(lat_s)
             lon = float(lon_s)
             if in_berlin_radius(lat, lon):
                 return lat, lon, True
-            _redis_geo.delete(k)
+            rgeo.delete(k)
     except Exception as e:
         app.logger.warning("Redis geo cache read failed: %s", e)
 
@@ -184,7 +206,7 @@ def geocode_with_redis_cache(versammlungsort: str, plz: str):
 
     # cache geocoes in Redis
     try:
-        _redis_geo.setex(k, ttl, f"{lat},{lon}")
+        rgeo.setex(k, ttl, f"{lat},{lon}")
     except Exception as e:
         app.logger.warning("Redis geo cache write failed: %s", e)
 
@@ -194,9 +216,13 @@ def build_locations(d: date):
     t0 = time.time()
 
     cache_key = f"locations::{d.isoformat()}"
-    if _redis_pg is not None:
+    rpg = get_redis(REDIS_DB_PG)
+    if rpg is None:
+        raise RuntimeError("Redis PG cache not configured properly.")
+
+    if rpg is not None:
         try:
-            cached = _redis_pg.get(cache_key)
+            cached = rpg.get(cache_key)
             if cached:
                 return json.loads(cached)
         except Exception as e:
@@ -214,7 +240,7 @@ def build_locations(d: date):
             SELECT id, datum, von, bis, thema, plz, versammlungsort, aufzugsstrecke
             FROM events
             WHERE datum = %s
-            ORDER BY von ASC
+            ORDER BY von ASC, id ASC
             LIMIT %s
             """,
             (d, max_rows),
@@ -297,9 +323,9 @@ def build_locations(d: date):
     )
 
     # cache locations in Redis
-    if _redis_pg is not None:
+    if rpg is not None:
         try:
-            _redis_pg.setex(
+            rpg.setex(
                 cache_key,
                 PGCACHE_TTL_SECONDS,
                 json.dumps(locations, ensure_ascii=False, separators=(",", ":")),
@@ -316,8 +342,8 @@ def _xor_bytes(data: bytes, key: bytes) -> bytes:
 
 def make_locations_obf(locations, app_date_iso: str) -> str:
     """
-    Returns base64(xor(utf8(minified_json), key(app_date))).
-    Not encryption; it's to avoid a clean JSON blob in HTML.
+    make_locations_obf: "Obfuscate locations JSON for 
+    embedding: XOR & base64."
     """
     key = f"berlin-events::v1::{app_date_iso}".encode("utf-8")
 
@@ -335,6 +361,9 @@ def make_locations_obf(locations, app_date_iso: str) -> str:
 @app.route("/", methods=["GET", "HEAD"])
 @limiter.limit(ROOT_RATE_LIMIT)
 def root():
+    app.logger.info(f"REMOTE_ADDR: {request.remote_addr}, \
+          X-Forwarded-For: {request.headers.get('X-Forwarded-For')}")
+
     d = parse_date_param()
     locations = build_locations(d)
     obf = make_locations_obf(locations, d.isoformat())
