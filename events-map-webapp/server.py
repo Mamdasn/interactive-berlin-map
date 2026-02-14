@@ -22,7 +22,7 @@ limiter = Limiter(
 )
 
 # --- Parameters ---
-ROOT_RATE_LIMIT = os.environ.get("ROOT_RATE_LIMIT", "1000 per minute")
+ROOT_RATE_LIMIT = os.environ.get("ROOT_RATE_LIMIT", "10 per minute")
 
 # --- Utilities ---
 def parse_date_param():

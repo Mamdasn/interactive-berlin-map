@@ -1,5 +1,6 @@
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
@@ -10,6 +11,7 @@ NOMINATIM_URL = os.environ.get("NOMINATIM_URL", "http://nominatim:8080")
 NOMINATIM_TIMEOUT = float(os.environ.get("NOMINATIM_TIMEOUT", "5"))
 GEOCACHE_TTL_DAYS = int(os.environ.get("GEOCACHE_TTL_DAYS", "1"))
 REDIS_DB_GEO = int(os.environ.get("REDIS_DB_GEO", "0"))
+NOMINATIM_PARALLEL_REQUESTS = int(os.environ.get("NOMINATIM_PARALLEL_REQUESTS", "4"))
 
 
 def geocode_place(versammlungsort: str, plz: str):
@@ -65,10 +67,35 @@ def geocode_from_redis_cache(rgeo, k: str):
 
 
 def geocode_from_nominatim(versammlungsort: str, plz: str):
-    lat, lon = geocode_place(versammlungsort, plz)
-    if lat is None or lon is None:
+    ort = (versammlungsort or "").strip()
+    plz = (plz or "").strip()
+    candidates = [(ort, plz)]
+    if ort:
+        candidates.append((ort, ""))
+
+    if "," in ort:
+        head = ort.split(",", 1)[0].strip()
+        if head:
+            candidates.append((head, plz))
+            candidates.append((head, ""))
+
+    unique_candidates = list(dict.fromkeys(candidates))
+    if not unique_candidates:
         return None, None
-    return lat, lon
+
+    with ThreadPoolExecutor(max_workers=NOMINATIM_PARALLEL_REQUESTS) as pool:
+        future_to_candidate = {
+            pool.submit(geocode_place, cand_ort, cand_plz): (cand_ort, cand_plz)
+            for cand_ort, cand_plz in unique_candidates
+        }
+        for fut in as_completed(future_to_candidate):
+            lat, lon = fut.result()
+            if lat is not None and lon is not None:
+                for pending in future_to_candidate:
+                    if pending is not fut:
+                        pending.cancel()
+                return lat, lon
+    return None, None
 
 
 def geocode_with_redis_cache(versammlungsort: str, plz: str):

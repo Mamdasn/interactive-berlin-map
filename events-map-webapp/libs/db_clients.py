@@ -2,7 +2,6 @@ import os
 from functools import lru_cache
 
 import redis
-import requests
 import psycopg2
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
