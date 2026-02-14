@@ -175,8 +175,13 @@ const degLon = HALF_KM / (Math.cos(BERLIN_CENTER[0] * 3.1415 / 180));
     noWrap: true
   }).addTo(map);
 
-  const minZoomToContainBerlin = map.getBoundsZoom(BERLIN_BOUNDS, true);
-  map.setMinZoom(minZoomToContainBerlin);
+  function updateMinZoomForViewport() {
+    // Use fit-to-bounds zoom; `inside=true` computes the inverse constraint.
+    const minZoomToFitBerlin = map.getBoundsZoom(BERLIN_BOUNDS);
+    map.setMinZoom(minZoomToFitBerlin);
+  }
+
+  updateMinZoomForViewport();
 
   function clampToBerlin() {
     map.panInsideBounds(BERLIN_BOUNDS, { animate: false });
@@ -194,6 +199,10 @@ const degLon = HALF_KM / (Math.cos(BERLIN_CENTER[0] * 3.1415 / 180));
   map.on("drag", clampToBerlin);
   map.on("zoom", clampToBerlin);
   map.on("move", clampToBerlin);
+  map.on("resize", () => {
+    updateMinZoomForViewport();
+    clampToBerlin();
+  });
 
   const statusEl = document.getElementById("status");
   const dateInput = document.getElementById("date");
