@@ -64,7 +64,6 @@
       .leaflet-popup.event-popup .leaflet-popup-content {
         margin: 10px 12px;
         max-width: 92vw;
-        /* Optional: prevent super tall popups from covering the whole map */
         max-height: 55vh;
         overflow-y: auto;
       }
@@ -159,6 +158,10 @@ const degLon = HALF_KM / (Math.cos(BERLIN_CENTER[0] * 3.1415 / 180));
     maxBoundsViscosity: 1.0,
     minZoom: 2,
     maxZoom: MAX_ZOOM,
+    zoomSnap: 0.25,
+    zoomDelta: 0.25,
+    wheelPxPerZoomLevel: 160,
+    bounceAtZoomLimits: false,
     worldCopyJump: false,
     continuousWorld: false
   });
@@ -176,31 +179,47 @@ const degLon = HALF_KM / (Math.cos(BERLIN_CENTER[0] * 3.1415 / 180));
   }).addTo(map);
 
   function updateMinZoomForViewport() {
-    // Use fit-to-bounds zoom; `inside=true` computes the inverse constraint.
-    const minZoomToFitBerlin = map.getBoundsZoom(BERLIN_BOUNDS);
+    const minZoomToFitBerlin = Math.max(2, map.getBoundsZoom(BERLIN_BOUNDS));
     map.setMinZoom(minZoomToFitBerlin);
+    if (map.getZoom() < minZoomToFitBerlin) {
+      map.setZoom(minZoomToFitBerlin, { animate: false });
+    }
   }
 
   updateMinZoomForViewport();
 
+  function clampZoomToLimits() {
+    const z = map.getZoom();
+    const min = map.getMinZoom();
+    const max = map.getMaxZoom();
+    if (z < min) {
+      map.setZoom(min, { animate: false });
+    } else if (z > max) {
+      map.setZoom(max, { animate: false });
+    }
+  }
+
   function clampToBerlin() {
-    map.panInsideBounds(BERLIN_BOUNDS, { animate: false });
+    if (!BERLIN_BOUNDS.contains(map.getCenter())) {
+      map.panInsideBounds(BERLIN_BOUNDS, { animate: false });
+    }
   }
 
   function resetView() {
     if (lastEventBounds && lastEventBounds.isValid()) {
-      map.fitBounds(lastEventBounds.pad(0.10), { maxZoom: MAX_ZOOM });
+      map.fitBounds(lastEventBounds.pad(0.10), { maxZoom: MAX_ZOOM, animate: false });
     } else {
-      map.fitBounds(BERLIN_BOUNDS, { maxZoom: 12 });
+      map.fitBounds(BERLIN_BOUNDS, { maxZoom: 12, animate: false });
     }
+    clampZoomToLimits();
     clampToBerlin();
   }
 
-  map.on("drag", clampToBerlin);
-  map.on("zoom", clampToBerlin);
-  map.on("move", clampToBerlin);
+  map.on("zoomend", clampZoomToLimits);
+  map.on("moveend", clampToBerlin);
   map.on("resize", () => {
     updateMinZoomForViewport();
+    clampZoomToLimits();
     clampToBerlin();
   });
 
