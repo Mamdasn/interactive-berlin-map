@@ -4,18 +4,16 @@ services:
     container_name: nginx-front
     restart: unless-stopped
     environment:
-      UPSTREAM_NGINX_HOST_IP: ${UPSTREAM_NGINX_HOST_IP}
+      MAIN_NGINX_HOST_IP: ${MAIN_NGINX_HOST_IP}
       DOMAIN_NAME: example.com
       NGINX_ENVSUBST_OUTPUT_DIR: "/etc/nginx"
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/nginx-front.conf.template:/etc/nginx/templates/nginx.conf.template:ro
-      - /etc/letsencrypt/live/example.com:/etc/letsencrypt/live/example.com:ro
+      - ./nginx/nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
+      - /etc/letsencrypt/live:/etc/letsencrypt/live:ro
       - /etc/letsencrypt/archive:/etc/letsencrypt/archive:ro
       - /etc/letsencrypt/renewal:/etc/letsencrypt/renewal:ro
       - /etc/ssl/certs:/etc/ssl/certs:ro
-      - ./nginx/429.html:/usr/share/nginx/html/429.html:ro
-      - ./nginx/error.html:/usr/share/nginx/html/error.html:ro
 

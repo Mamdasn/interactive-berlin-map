@@ -30,7 +30,7 @@ http {
 
   # Upstream Host
   upstream host_in_nginx {
-    server ${UPSTREAM_NGINX_HOST_IP}:80;
+    server ${MAIN_NGINX_HOST_IP}:80;
     keepalive 32;
   }
 
@@ -118,8 +118,8 @@ http {
         application/octet-stream;
 
       # Replace backend absolute URLs with the domain name
-      sub_filter "http://${UPSTREAM_NGINX_HOST_IP}/" "https://${DOMAIN_NAME}/";
-      sub_filter "http://${UPSTREAM_NGINX_HOST_IP}"  "https://${DOMAIN_NAME}";
+      sub_filter "http://${MAIN_NGINX_HOST_IP}/" "https://${DOMAIN_NAME}/";
+      sub_filter "http://${MAIN_NGINX_HOST_IP}"  "https://${DOMAIN_NAME}";
       sub_filter "http://${DOMAIN_NAME}/" "https://${DOMAIN_NAME}/";
       sub_filter "http://${DOMAIN_NAME}"  "https://${DOMAIN_NAME}";
     }
