@@ -1,0 +1,128 @@
+worker_processes 1;
+
+events {
+  worker_connections 1024;
+}
+
+http {
+  include       /etc/nginx/mime.types;
+  default_type  application/octet-stream;
+
+  server_tokens off;
+
+  sendfile on;
+  tcp_nopush on;
+  tcp_nodelay on;
+  keepalive_timeout 30;
+
+  client_max_body_size 64k;
+  client_body_buffer_size 64k;
+  client_header_buffer_size 4k;
+  large_client_header_buffers 2 8k;
+
+  client_body_timeout 10s;
+  client_header_timeout 10s;
+  send_timeout 15s;
+
+  proxy_connect_timeout 3s;
+  proxy_send_timeout 30s;
+  proxy_read_timeout 30s;
+
+  # Upstream Host
+  upstream host_in_nginx {
+    server ${UPSTREAM_NGINX_HOST_IP}:80;
+    keepalive 32;
+  }
+
+  map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+  }
+
+  # --- HTTP server ---
+  # Redirect all HTTP -> HTTPS (port 80 is redirect-only)
+  server {
+    listen 80;
+    listen [::]:80;
+    server_name ${DOMAIN_NAME} www.${DOMAIN_NAME};
+
+    return 301 https://${DOMAIN_NAME}$request_uri;
+  }
+
+  # --- HTTPS server ---
+  server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+
+    server_name ${DOMAIN_NAME} www.${DOMAIN_NAME};
+
+    # --- TLS certs from mounted /etc/letsencrypt ---
+    ssl_certificate     /etc/letsencrypt/live/${DOMAIN_NAME}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN_NAME}/privkey.pem;
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+
+    # --- Security headers ---
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
+    add_header Permissions-Policy "geolocation=(), camera=(), microphone=()" always;
+
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com blob:; worker-src 'self' blob:; connect-src 'self' https://naas.isalman.dev https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://www.google.com; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none';" always;
+
+    # Block common "probe" expoloit
+    location = /.env { return 404; }
+    location ~* \.(env|ini|log|sql|bak|old|swp)$ { return 404; }
+
+    location ~* \.map$ { return 404; }
+
+    # --- Reverse proxy ---
+    location / {
+      proxy_http_version 1.1;
+
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection $connection_upgrade;
+
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto https;
+
+      # Forward everything to upstream
+      proxy_pass http://host_in_nginx;
+
+      proxy_redirect http:// https://;
+
+      # Disable upstream compression 
+      proxy_set_header Accept-Encoding "";
+
+      # Ensure upstream CSP headers do NOT interfere
+      proxy_hide_header Content-Security-Policy;
+      proxy_hide_header Content-Security-Policy-Report-Only;
+
+      # Rewrite absolute backend URLs -> edge URL
+      sub_filter_once off;
+
+      sub_filter_types
+        text/html
+        text/css
+        application/javascript
+        application/json
+        text/plain
+        application/octet-stream;
+
+      # Replace backend absolute URLs with the domain name
+      sub_filter "http://${UPSTREAM_NGINX_HOST_IP}/" "https://${DOMAIN_NAME}/";
+      sub_filter "http://${UPSTREAM_NGINX_HOST_IP}"  "https://${DOMAIN_NAME}";
+      sub_filter "http://${DOMAIN_NAME}/" "https://${DOMAIN_NAME}/";
+      sub_filter "http://${DOMAIN_NAME}"  "https://${DOMAIN_NAME}";
+    }
+  }
+}
+
