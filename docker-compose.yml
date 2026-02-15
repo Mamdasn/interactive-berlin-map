@@ -74,6 +74,7 @@ services:
       REDIS_DB_PG: "1" #  1 = cache postgres 
       NOMINATIM_URL: http://nominatim:8080
       NOMINATIM_PARALLEL_REQUESTS: "4"
+      GEOCACHE_TTL_DAYS: "30"
       RATELIMIT_STORAGE_URI: redis://redis:6379/2 #  2 = cache to use for rate-limit
       BERLIN_CENTER_LAT: "52.5200"
       BERLIN_CENTER_LON: "13.4050"
@@ -91,9 +92,12 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+    environment:
+      FRONT_NGINX_HOST_IP: ${FRONT_NGINX_HOST_IP}
+      NGINX_ENVSUBST_OUTPUT_DIR: "/etc/nginx"
     volumes:
       - ./nginx-cache:/var/cache/nginx
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/nginx.conf.template:/etc/nginx/templates/nginx.conf.template:ro
       - ./nginx/429.html:/usr/share/nginx/html/429.html:ro
       - ./nginx/error.html:/usr/share/nginx/html/error.html:ro
     depends_on:
