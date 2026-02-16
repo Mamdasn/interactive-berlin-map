@@ -1,0 +1,25 @@
+name: Deploy Interactive Map via Ansible
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '.gitignore'
+      - 'README.md'
+  workflow_dispatch:
+
+jobs:
+  deploy-on-host:
+    runs-on: self-hosted
+    steps:
+    - name: Checkout repository (with submodules)
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - name: Run Ansible on Self-Hosted
+      env:
+        MAIN_NGINX_HOST_IP: ${{secrets.MAIN_NGINX_HOST_IP}}
+        FRONT_NGINX_HOST_IP: ${{secrets.FRONT_NGINX_HOST_IP}}
+      run: |
+        ansible-playbook -i inventory.ini site.yml
