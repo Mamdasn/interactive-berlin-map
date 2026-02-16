@@ -22,4 +22,6 @@ jobs:
         MAIN_NGINX_HOST_IP: ${{secrets.MAIN_NGINX_HOST_IP}}
         FRONT_NGINX_HOST_IP: ${{secrets.FRONT_NGINX_HOST_IP}}
       run: |
+        export MAIN_NGINX_HOST_IP=$MAIN_NGINX_HOST_IP &&
+        export FRONT_NGINX_HOST_IP=$FRONT_NGINX_HOST_IP &&
         ansible-playbook -i inventory.ini site.yml
