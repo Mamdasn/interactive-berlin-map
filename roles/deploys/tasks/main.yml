@@ -13,6 +13,12 @@
       - "--info=progress2"
   delegate_to: localhost
 
+- name: Stop stack if running
+  ansible.builtin.command:
+    cmd: docker compose down
+    chdir: "/var/tmp/compose/{{ stack_name }}"
+  ignore_errors: true
+
 - name: Start stack
   ansible.builtin.command:
     cmd: docker compose up --build -d
