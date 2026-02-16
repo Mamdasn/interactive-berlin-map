@@ -1,0 +1,20 @@
+- name: Ensure app dir exists
+  ansible.builtin.file:
+    path: "/var/tmp/compose/{{ stack_name }}"
+    state: directory
+    mode: "0755"
+
+- name: Sync stack files with progress
+  ansible.posix.synchronize:
+    src: "{{ stack_name }}/"
+    dest: "/var/tmp/compose/{{ stack_name }}/"
+    archive: true
+    rsync_opts:
+      - "--info=progress2"
+  delegate_to: localhost
+
+- name: Start stack
+  ansible.builtin.command:
+    cmd: docker compose up --build -d
+    chdir: "/var/tmp/compose/{{ stack_name }}"
+

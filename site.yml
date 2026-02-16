@@ -1,0 +1,4 @@
+- hosts: compose_hosts
+  become: false
+  roles:
+    - deploys
