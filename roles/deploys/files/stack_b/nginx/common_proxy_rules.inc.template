@@ -1,0 +1,37 @@
+proxy_http_version 1.1;
+
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection $connection_upgrade;
+
+proxy_set_header Host $host;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto https;
+
+# Forward everything to upstream
+proxy_pass http://host_in_nginx;
+
+proxy_redirect http:// https://;
+
+# Disable upstream compression
+proxy_set_header Accept-Encoding "";
+
+# Ensure upstream CSP headers do NOT interfere
+proxy_hide_header Content-Security-Policy;
+proxy_hide_header Content-Security-Policy-Report-Only;
+
+# Rewrite absolute backend URLs -> edge URL
+sub_filter_once off;
+
+sub_filter_types
+  text/html
+  text/css
+  application/javascript
+  application/json
+  text/plain
+  application/octet-stream;
+
+sub_filter "http://${MAIN_NGINX_HOST_IP}/" "https://${DOMAIN_NAME}/";
+sub_filter "http://${MAIN_NGINX_HOST_IP}"  "https://${DOMAIN_NAME}";
+sub_filter "http://${DOMAIN_NAME}/" "https://${DOMAIN_NAME}/";
+sub_filter "http://${DOMAIN_NAME}"  "https://${DOMAIN_NAME}";
