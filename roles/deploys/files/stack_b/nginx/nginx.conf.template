@@ -76,10 +76,12 @@ http {
 
     add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com blob:; worker-src 'self' blob:; connect-src 'self' https://naas.isalman.dev https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://www.google.com; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none';" always;
 
-    # Block common "probe" expoloit
+    # Block common probe/exploit paths
     location = /.env { return 404; }
     location ~* \.(env|ini|log|sql|bak|old|swp)$ { return 404; }
-
+    location ~* \.php(?:$|/) { return 404; }
+    location ~* ^/(wp-admin|wp-content|wp-includes|wordpress|xmlrpc\.php|wp-login\.php|setup-config\.php|phpmyadmin|pma|adminer|cgi-bin)(/|$) { return 404; }
+    location ~ /\.(?!well-known).* { deny all; }
     location ~* \.map$ { return 404; }
 
     # --- Reverse proxy ---
@@ -117,7 +119,6 @@ http {
         text/plain
         application/octet-stream;
 
-      # Replace backend absolute URLs with the domain name
       sub_filter "http://${MAIN_NGINX_HOST_IP}/" "https://${DOMAIN_NAME}/";
       sub_filter "http://${MAIN_NGINX_HOST_IP}"  "https://${DOMAIN_NAME}";
       sub_filter "http://${DOMAIN_NAME}/" "https://${DOMAIN_NAME}/";
@@ -125,4 +126,3 @@ http {
     }
   }
 }
-

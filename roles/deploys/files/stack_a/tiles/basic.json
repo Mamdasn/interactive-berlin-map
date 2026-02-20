@@ -1,6 +1,6 @@
 {
     "version": 8,
-    "name": "Basic preview",
+    "name": "basic",
     "metadata": {
         "openmaptiles:version": "3.x"
     },
