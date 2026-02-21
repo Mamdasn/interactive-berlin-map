@@ -100,12 +100,13 @@ http {
     }
 
     # --- Map Tiles ---
-    location ~ ^/(styles|fonts|data)/ {
+    location ~ ^/tiles/(styles|fonts|data)/ {
       limit_except GET HEAD { 
         deny all; 
       }
 
       limit_req zone=tiles_zone burst=50 nodelay;
+      rewrite ^/tiles/(styles|fonts|data)/(.*)$ /$1/$2 break;
 
       proxy_http_version 1.1;
       proxy_set_header Connection "";

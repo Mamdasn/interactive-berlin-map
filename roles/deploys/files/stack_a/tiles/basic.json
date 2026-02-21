@@ -7,10 +7,10 @@
     "sources": {
         "openmaptiles": {
             "type": "vector",
-            "url": "/data/berlin.json"
+            "url": "/tiles/data/berlin.json"
         }
     },
-    "glyphs": "/fonts/{fontstack}/{range}.pbf",
+    "glyphs": "/tiles/fonts/{fontstack}/{range}.pbf",
     "layers": [
         {
             "id": "background",

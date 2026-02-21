@@ -12,10 +12,7 @@
   },
   "styles": {
     "basic": {
-      "style": "basic.json",
-      "tilejson": { 
-        "source": "berlin" 
-      }
+      "style": "basic.json"
     }
   }
 }
