@@ -103,7 +103,7 @@ http {
     add_header Referrer-Policy "no-referrer" always;
     add_header Permissions-Policy "geolocation=(), camera=(), microphone=()" always;
 
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com blob:; worker-src 'self' blob:; connect-src 'self' https://naas.isalman.dev https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://www.google.com; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none';" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com blob:; worker-src 'self' blob:; connect-src 'self' https://naas.isalman.dev https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com https://cdnjs.cloudflare.com; img-src 'self' data: https://www.google.com https://avatars.githubusercontent.com; font-src 'self' data: https://cdnjs.cloudflare.com; frame-ancestors 'none'; base-uri 'none';" always;
 
     # Dedicated log stream for suspicious probes (useful for fail2ban jails)
     access_log /var/log/nginx/security.log security if=$is_bad_probe;
@@ -115,7 +115,14 @@ http {
 
     # --- Reverse proxy ---
     location = / {
-      return 301 /maps/;
+      proxy_http_version 1.1;
+      proxy_set_header Connection "";
+      proxy_set_header Host myexamplyblog.com;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_ssl_server_name on;
+      proxy_pass https://myexamplyblog.com/;
     }
 
     location = /maps {
@@ -140,7 +147,15 @@ http {
     }
 
     location / {
-      return 404;
+      proxy_http_version 1.1;
+      proxy_set_header Connection "";
+      proxy_set_header Host myexamplyblog.com;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_ssl_server_name on;
+
+      proxy_pass https://myexamplyblog.com;
     }
   }
 }
