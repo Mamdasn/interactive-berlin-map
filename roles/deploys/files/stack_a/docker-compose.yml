@@ -19,7 +19,7 @@ services:
     environment:
       <<: *postgres-cred-shared
     volumes:
-      - ./postgres_data:/var/lib/postgresql/data
+      - protestcrawlerdata:/var/lib/postgresql/data
   
   redis:
     image: redis:8-alpine
@@ -32,7 +32,7 @@ services:
   protestcrawler:
     container_name: protestcrawler
     restart: on-failure
-    image: sfarhad/protestcrawler:4.1.0
+    image: sfarhad/protestcrawler:4.3.0
     environment:
       <<: *postgres-cred-shared
       DB_UPDATE_PERIOD: ${DB_UPDATE_PERIOD}
@@ -105,3 +105,6 @@ services:
     depends_on:
       - events-map-webapp
       - tileserver
+
+volumes:
+  protestcrawlerdata:
