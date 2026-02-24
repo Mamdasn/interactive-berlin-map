@@ -1,0 +1,22 @@
+ssl_certificate     /etc/letsencrypt/live/${DOMAIN_NAME}/fullchain.pem;
+ssl_certificate_key /etc/letsencrypt/live/${DOMAIN_NAME}/privkey.pem;
+
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_prefer_server_ciphers off;
+ssl_session_cache shared:SSL:10m;
+ssl_session_timeout 10m;
+
+add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+
+add_header X-Content-Type-Options "nosniff" always;
+add_header X-Frame-Options "DENY" always;
+add_header Referrer-Policy "no-referrer" always;
+add_header Permissions-Policy "geolocation=(), camera=(), microphone=()" always;
+
+add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com blob:; worker-src 'self' blob:; connect-src 'self' https://naas.isalman.dev https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com https://cdnjs.cloudflare.com; img-src 'self' data: https://www.google.com https://avatars.githubusercontent.com; font-src 'self' data: https://cdnjs.cloudflare.com; frame-ancestors 'none'; base-uri 'none';" always;
+
+access_log /var/log/nginx/security.log security if=$is_bad_probe;
+
+if ($should_drop_request) { return 444; }
+
+location ~* \.map$ { return 404; }

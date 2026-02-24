@@ -86,11 +86,11 @@ http {
   server {
     listen 80;
     listen [::]:80;
-    server_name ${DOMAIN_NAME} www.${DOMAIN_NAME};
+    server_name ${DOMAIN_NAME} www.${DOMAIN_NAME} maps.${DOMAIN_NAME};
 
     if ($is_banned_ip) { return 444; }
 
-    return 301 https://${DOMAIN_NAME}$request_uri;
+    return 301 https://$host$request_uri;
   }
 
   # --- HTTPS server ---
@@ -101,32 +101,7 @@ http {
 
     server_name ${DOMAIN_NAME} www.${DOMAIN_NAME};
 
-    # --- TLS certs from mounted /etc/letsencrypt ---
-    ssl_certificate     /etc/letsencrypt/live/${DOMAIN_NAME}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN_NAME}/privkey.pem;
-
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_prefer_server_ciphers off;
-    ssl_session_cache shared:SSL:10m;
-    ssl_session_timeout 10m;
-
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
-
-    # --- Security headers ---
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "DENY" always;
-    add_header Referrer-Policy "no-referrer" always;
-    add_header Permissions-Policy "geolocation=(), camera=(), microphone=()" always;
-
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com blob:; worker-src 'self' blob:; connect-src 'self' https://naas.isalman.dev https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com https://cdnjs.cloudflare.com; img-src 'self' data: https://www.google.com https://avatars.githubusercontent.com; font-src 'self' data: https://cdnjs.cloudflare.com; frame-ancestors 'none'; base-uri 'none';" always;
-
-    # Dedicated log stream for suspicious probes (useful for fail2ban jails)
-    access_log /var/log/nginx/security.log security if=$is_bad_probe;
-
-    # Drop if request is from a banned IP or matches probe patterns
-    if ($should_drop_request) { return 444; }
-
-    location ~* \.map$ { return 404; }
+    include /etc/nginx/https_server_common.inc;
 
     # --- Reverse proxy ---
     location = / {
@@ -150,16 +125,7 @@ http {
       include /etc/nginx/common_proxy_rules.inc;
     }
 
-    location ~ ^/maps/tiles/(styles|fonts|data)/ {
-      limit_req zone=tiles_zone burst=50 nodelay;
-      rewrite ^/maps(/tiles/(styles|fonts|data)/.*)$ $1 break;
-      include /etc/nginx/common_proxy_rules.inc;
-    }
-
-    location ~ ^/tiles/(styles|fonts|data)/ {
-      limit_req zone=tiles_zone burst=50 nodelay;
-      include /etc/nginx/common_proxy_rules.inc;
-    }
+    include /etc/nginx/maps_tiles_locations.inc;
 
     location / {
       proxy_http_version 1.1;
@@ -172,5 +138,32 @@ http {
 
       proxy_pass https://myexamplyblog.com;
     }
+  }
+
+  # --- HTTPS maps host ---
+  # Keep maps.${DOMAIN_NAME} equivalent to ${DOMAIN_NAME}/maps
+  server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+
+    server_name maps.${DOMAIN_NAME};
+
+    include /etc/nginx/https_server_common.inc;
+
+    location = /maps {
+      return 301 /;
+    }
+
+    location = /maps/ {
+      return 301 /;
+    }
+
+    location = / {
+      limit_req zone=html_zone burst=20 nodelay;
+      include /etc/nginx/common_proxy_rules.inc;
+    }
+
+    include /etc/nginx/maps_tiles_locations.inc;
   }
 }

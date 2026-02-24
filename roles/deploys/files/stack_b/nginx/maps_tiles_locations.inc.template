@@ -1,0 +1,4 @@
+location ~ ^/tiles/(styles|fonts|data)/ {
+  limit_req zone=tiles_zone burst=50 nodelay;
+  include /etc/nginx/common_proxy_rules.inc;
+}
