@@ -24,3 +24,56 @@
     cmd: docker compose up --build -d
     chdir: "/var/tmp/compose/{{ stack_name }}"
 
+- name: Install stack_a geocode cache warmup service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/stack_a-geocode-cache-warmup.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Warm stack_a geocode cache
+      After=docker.service
+      Requires=docker.service
+
+      [Service]
+      Type=oneshot
+      WorkingDirectory=/var/tmp/compose/stack_a
+      ExecStart=/usr/bin/docker compose run --rm --no-deps events-map-webapp python -m libs.geocode_cache_warm_up --from today --days 30
+  become: true
+  notify: Reload and restart stack_a geocode cache warmup timer
+  when: stack_name == "stack_a"
+
+- name: Install stack_a geocode cache warmup timer
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/stack_a-geocode-cache-warmup.timer
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Run stack_a geocode cache warmup daily at midnight
+
+      [Timer]
+      OnCalendar=*-*-* 00:00:00
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+  become: true
+  notify: Reload and restart stack_a geocode cache warmup timer
+  when: stack_name == "stack_a"
+
+- name: Enable stack_a geocode cache warmup timer
+  ansible.builtin.systemd:
+    name: stack_a-geocode-cache-warmup.timer
+    enabled: true
+    state: started
+  become: true
+  when: stack_name == "stack_a"
+
+- name: Warm stack_a geocode cache
+  ansible.builtin.command:
+    cmd: docker compose run --rm --no-deps events-map-webapp python -m libs.geocode_cache_warm_up --from today --days 30
+    chdir: "/var/tmp/compose/{{ stack_name }}"
+  register: warm_cache_result
+  retries: 12
+  delay: 10
+  until: warm_cache_result.rc == 0
+  when: stack_name == "stack_a"

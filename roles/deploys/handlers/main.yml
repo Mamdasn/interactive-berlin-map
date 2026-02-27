@@ -1,0 +1,6 @@
+- name: Reload and restart stack_a geocode cache warmup timer
+  ansible.builtin.systemd:
+    name: stack_a-geocode-cache-warmup.timer
+    state: restarted
+    daemon_reload: true
+  become: true
