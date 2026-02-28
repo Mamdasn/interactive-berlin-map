@@ -2,7 +2,7 @@ import os
 import json
 import base64
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 from flask import Flask, render_template, request, abort
 from flask_limiter import Limiter
@@ -25,7 +25,11 @@ limiter = Limiter(
 ROOT_RATE_LIMIT = os.environ.get("ROOT_RATE_LIMIT", "10 per minute")
 
 # --- Utilities ---
-def parse_date_param():
+def get_max_allowed_date(today: date) -> date:
+    return today + timedelta(days=29)
+
+
+def parse_date_param(today: date, max_date: date):
     allowed = {"date"}
     extra = set(request.args.keys()) - allowed
     if extra:
@@ -33,15 +37,23 @@ def parse_date_param():
 
     ds = request.args.get("date")
     if not ds:
-        return date.today()
+        return today
 
     if len(ds) != 10 or ds[4] != "-" or ds[7] != "-":
         abort(400, "date must be YYYY-MM-DD")
 
     try:
-        return datetime.strptime(ds, "%Y-%m-%d").date()
+        parsed_date = datetime.strptime(ds, "%Y-%m-%d").date()
     except ValueError:
         abort(400, "date must be YYYY-MM-DD")
+
+    if parsed_date < today or parsed_date > max_date:
+        abort(
+            400,
+            f"date must be between {today.isoformat()} and {max_date.isoformat()}",
+        )
+
+    return parsed_date
 
 # --- Obfuscation functions ---
 def _xor_bytes(data: bytes, key: bytes) -> bytes:
@@ -72,10 +84,18 @@ def root():
     app.logger.info(f"REMOTE_ADDR: {request.remote_addr}, \
           X-Forwarded-For: {request.headers.get('X-Forwarded-For')}")
 
-    d = parse_date_param()
+    today = date.today()
+    max_date = get_max_allowed_date(today)
+    d = parse_date_param(today, max_date)
     locations = build_locations(d)
     obf = make_locations_obf(locations, d.isoformat())
-    return render_template("index.html", date=d.isoformat(), locations_obf=obf)
+    return render_template(
+        "index.html",
+        date=d.isoformat(),
+        min_date=today.isoformat(),
+        max_date=max_date.isoformat(),
+        locations_obf=obf,
+    )
 
 @app.route("/<path:unused>")
 def block_everything(unused):

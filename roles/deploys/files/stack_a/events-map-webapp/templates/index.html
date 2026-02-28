@@ -125,6 +125,8 @@
   }
 
   const APP_DATE = {{ date|tojson }};
+  const MIN_DATE = {{ min_date|tojson }};
+  const MAX_DATE = {{ max_date|tojson }};
 </script>
 
 <script id="loc-payload" type="text/plain">
@@ -232,6 +234,8 @@ const degLon = HALF_KM / (Math.cos(BERLIN_CENTER[0] * 3.1415 / 180));
   const statusEl = document.getElementById("status");
   const dateInput = document.getElementById("date");
   dateInput.value = APP_DATE;
+  dateInput.min = MIN_DATE;
+  dateInput.max = MAX_DATE;
 
   function escapeHtml(s) {
     return String(s ?? "")
@@ -309,6 +313,11 @@ const degLon = HALF_KM / (Math.cos(BERLIN_CENTER[0] * 3.1415 / 180));
 
   dateInput.addEventListener("change", () => {
     if (!dateInput.value) return;
+    if (dateInput.value < MIN_DATE || dateInput.value > MAX_DATE) {
+      dateInput.value = APP_DATE;
+      statusEl.textContent = `Choose a date between ${MIN_DATE} and ${MAX_DATE}.`;
+      return;
+    }
     setUrlDate(dateInput.value);
   });
 </script>
