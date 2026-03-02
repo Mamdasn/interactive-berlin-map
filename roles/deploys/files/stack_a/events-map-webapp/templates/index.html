@@ -150,6 +150,7 @@ const degLon = HALF_KM / (Math.cos(BERLIN_CENTER[0] * 3.1415 / 180));
   );
 
   const MAX_ZOOM = 18;
+  const CONTROL_ZOOM_DELTA = 1;
 
   const map = L.map('map', {
     center: BERLIN_CENTER,
@@ -161,7 +162,7 @@ const degLon = HALF_KM / (Math.cos(BERLIN_CENTER[0] * 3.1415 / 180));
     minZoom: 2,
     maxZoom: MAX_ZOOM,
     zoomSnap: 0.25,
-    zoomDelta: 0.25,
+    zoomDelta: CONTROL_ZOOM_DELTA,
     wheelPxPerZoomLevel: 160,
     bounceAtZoomLimits: false,
     worldCopyJump: false,
