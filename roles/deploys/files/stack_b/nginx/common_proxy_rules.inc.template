@@ -33,5 +33,6 @@ sub_filter_types
 
 sub_filter "http://${MAIN_NGINX_HOST_IP}/" "https://${DOMAIN_NAME}/";
 sub_filter "http://${MAIN_NGINX_HOST_IP}"  "https://${DOMAIN_NAME}";
+sub_filter "http://maps.${DOMAIN_NAME}"    "https://maps.${DOMAIN_NAME}";
 sub_filter "http://${DOMAIN_NAME}/" "https://${DOMAIN_NAME}/";
 sub_filter "http://${DOMAIN_NAME}"  "https://${DOMAIN_NAME}";
