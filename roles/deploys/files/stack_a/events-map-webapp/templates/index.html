@@ -286,7 +286,7 @@ const degLon = HALF_KM / (Math.cos(BERLIN_CENTER[0] * 3.1415 / 180));
       const header = `<b>${loc.events.length} event(s) here</b>`;
 
       const body = loc.events.map(ev => {
-        const addr = `${ev.versammlungsort ?? ""}${ev.plz ? ", " + ev.plz : ""}`.trim();
+        const addr = `${ev.versammlungsort ?? ""}${ev.plz && ev.plz !== "00000" ? ", " + ev.plz : ""}`.trim();
         return `
           <div class="popup-item">
             <b>${escapeHtml(ev.title ?? "Protest")}</b><br>
