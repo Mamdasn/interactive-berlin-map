@@ -20,6 +20,12 @@ services:
       <<: *postgres-cred-shared
     volumes:
       - protestcrawlerdata:/var/lib/postgresql/data
+    healthcheck:
+      test: "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
   
   redis:
     image: redis:8-alpine
@@ -28,6 +34,12 @@ services:
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - ./redis-data:/data
+    healthcheck:
+      test: "redis-cli ping"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
 
   protestcrawler:
     container_name: protestcrawler
@@ -37,11 +49,16 @@ services:
       <<: *postgres-cred-shared
       DB_UPDATE_PERIOD: ${DB_UPDATE_PERIOD}
       POSTGRES_HOST: "postgres_db"
-    volumes:
-      - ./protestcrawler/output:/app/output
     command: ["sh", "-c", "python protestcrawler.py >> /app/output/protestcrawler.logs 2>&1"]
     depends_on:
-      - postgres_db
+      postgres_db:
+        condition: service_healthy
+    healthcheck:
+      test: "grep -q 'Scraping data finished' /app/output/protestcrawler.logs"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   nominatim:
     image: mediagis/nominatim:5.2
@@ -55,6 +72,12 @@ services:
       - ./pbf:/data:ro
     shm_size: "2gb"
     restart: unless-stopped
+    healthcheck:
+      test: "curl -fsS http://localhost:8080/status >/dev/null"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 90s
 
   tileserver:
     image: maptiler/tileserver-gl-light:latest
@@ -77,15 +100,20 @@ services:
       NOMINATIM_URL: http://nominatim:8080
       NOMINATIM_PARALLEL_REQUESTS: "4"
       GEOCACHE_TTL_DAYS: "30"
+      EVENTS_MAX_GEOCODES: "100"
       RATELIMIT_STORAGE_URI: redis://redis:6379/2 #  2 = cache to use for rate-limit
       BERLIN_CENTER_LAT: "52.5200"
       BERLIN_CENTER_LON: "13.4050"
       BERLIN_RADIUS_KM: "30.0"
     depends_on:
-      - nominatim
-      - tileserver
-      - postgres_db
-      - redis
+      nominatim:
+        condition: service_healthy
+      tileserver:
+        condition: service_started
+      protestcrawler:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     command: ["gunicorn", "-b", "0.0.0.0:8000", "--log-level", "debug", "--worker-class", "gthread", "--threads", "8", "--workers", "2", "wsgi:app"]
 
   nginx:
