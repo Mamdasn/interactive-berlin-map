@@ -38,6 +38,8 @@ http {
     keepalive 32;
   }
 
+  include /etc/nginx/cloudflare_real_ip.inc;
+
   map $http_upgrade $connection_upgrade {
     default upgrade;
     ''      close;
