@@ -15,8 +15,8 @@ http {
   tcp_nodelay on;
   keepalive_timeout 30;
 
-  client_max_body_size 64k;
-  client_body_buffer_size 64k;
+  client_max_body_size 1;
+  client_body_buffer_size 1k;
   client_header_buffer_size 4k;
   large_client_header_buffers 2 8k;
 
@@ -94,6 +94,7 @@ http {
     access_log /var/log/nginx/security.log security if=$is_bad_probe;
 
     if ($should_drop_request) { return 444; }
+    if ($request_method !~ ^(GET|HEAD)$) { return 405; }
 
     return 301 https://$host$request_uri;
   }
@@ -107,6 +108,8 @@ http {
     server_name ${DOMAIN_NAME} www.${DOMAIN_NAME};
 
     include /etc/nginx/https_server_common.inc;
+
+    if ($request_method !~ ^(GET|HEAD)$) { return 405; }
 
     # --- Reverse proxy ---
     location = / {
@@ -155,6 +158,8 @@ http {
     server_name maps.${DOMAIN_NAME};
 
     include /etc/nginx/https_server_common.inc;
+
+    if ($request_method !~ ^(GET|HEAD)$) { return 405; }
 
     location = /maps {
       return 301 /;
