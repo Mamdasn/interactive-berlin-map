@@ -60,13 +60,14 @@ http {
     ''      $remote_addr;
   }
 
-  map $request_uri $is_bad_probe {
+  map $uri $is_bad_probe {
     default 0;
-    ~^/\.env$ 1;
-    ~*\.(env|ini|log|sql|bak|old|swp)$ 1;
-    ~*\.php(?:$|/) 1;
-    ~*^/(wp-admin|wp-content|wp-includes|wordpress|xmlrpc\.php|wp-login\.php|setup-config\.php|phpmyadmin|pma|adminer|cgi-bin)(/|$) 1;
-    ~^/\.(?!well-known).* 1;
+    ~*(?:^|/)\.(?!well-known(?:/|$)).+ 1;
+    ~*(?:^|/)\.env(?:[._~-][A-Za-z0-9_-]+)?$ 1;
+    ~*\.(?:env|ini|log|sql|bak|old|swp|save)$ 1;
+    ~*\.(?:php|asp|aspx|jsp|cgi)(?:$|/) 1;
+    ~*^/(?:wp-admin|wp-content|wp-includes|wordpress|xmlrpc\.php|wp-login\.php|setup-config\.php|phpmyadmin|pma|adminer)(?:/|$) 1;
+    ~*^/(?:cgi-bin|HNAP1|GponForm|boaform|Autodiscover|_ignition|actuator|geoserver|solr|vendor/phpunit|manager/html|hudson|telescope|debug)(?:/|$) 1;
   }
 
   geo $is_banned_ip {
@@ -90,7 +91,9 @@ http {
     listen [::]:80;
     server_name ${DOMAIN_NAME} www.${DOMAIN_NAME} maps.${DOMAIN_NAME};
 
-    if ($is_banned_ip) { return 444; }
+    access_log /var/log/nginx/security.log security if=$is_bad_probe;
+
+    if ($should_drop_request) { return 444; }
 
     return 301 https://$host$request_uri;
   }
