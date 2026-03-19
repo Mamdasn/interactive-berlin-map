@@ -3,12 +3,14 @@
     main_nginx_host_ip_env: "{{ lookup('ansible.builtin.env', 'MAIN_NGINX_HOST_IP', default='') | trim }}"
     front_nginx_host_ip_env: "{{ lookup('ansible.builtin.env', 'FRONT_NGINX_HOST_IP', default='') | trim }}"
     front_nginx_domain_name: "{{ lookup('ansible.builtin.env', 'DOMAIN_NAME', default='') | trim }}"
+    front_nginx_domain_name_blog: "{{ lookup('ansible.builtin.env', 'DOMAIN_NAME_BLOG', default='') | trim }}"
 
 - name: Ensure nginx host IPs are set before deploying any stack
   ansible.builtin.assert:
     that:
       - front_nginx_host_ip_env | length > 0
       - front_nginx_domain_name | length > 0
+      - front_nginx_domain_name_blog | length > 0
       - main_nginx_host_ip_env | length > 0
     fail_msg: DOMAIN_NAME, FRONT_NGINX_HOST_IP (gateway ip) and MAIN_NGINX_HOST_IP (backend ip) must both be exported before deploying
 
@@ -80,6 +82,7 @@
     MAIN_NGINX_HOST_IP: "{{ main_nginx_host_ip_env }}"
     FRONT_NGINX_HOST_IP: "{{ front_nginx_host_ip_env }}"
     DOMAIN_NAME: "{{ front_nginx_domain_name }}"
+    DOMAIN_NAME_BLOG: "{{ front_nginx_domain_name_blog }}"
 
 - name: Install stack_a geocode cache warmup service
   ansible.builtin.copy:
