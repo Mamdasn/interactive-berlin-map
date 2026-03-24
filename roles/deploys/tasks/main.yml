@@ -68,6 +68,13 @@
     mode: "0644"
   when: stack_name == "stack_b"
 
+- name: Compile an nginx include file for Cloudflare-only origin access
+  ansible.builtin.template:
+    src: stack_b/nginx/cloudflare_origin_allow.inc.template.j2
+    dest: /var/tmp/compose/stack_b/nginx/cloudflare_origin_allow.inc.template
+    mode: "0644"
+  when: stack_name == "stack_b"
+
 - name: Stop stack if running
   ansible.builtin.command:
     cmd: docker compose down
